@@ -1,0 +1,32 @@
+{
+  "schedule": [
+    {
+      "serverId": "",
+      "time": "",
+      "channelId": "",
+      "number": 1,
+      "message": ""
+    },
+    {
+      "serverId": "",
+      "time": "",
+      "channelId": "",
+      "number": 1,
+      "message": "**"
+    },
+    {
+      "serverId": "",
+      "time": "",
+      "channelId": "",
+      "number": 2,
+      "message": ""
+    },
+    {
+      "serverId": "",
+      "time": "",
+      "channelId": "",
+      "number": 3,
+      "message": ""
+    }
+  ]
+}

@@ -1,0 +1,5 @@
+{
+    "token": "YourToken",
+    "autoDM": "YourMessage", 
+    "autoDeleteMessageAfterSend": true
+}
