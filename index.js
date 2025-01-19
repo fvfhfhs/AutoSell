@@ -4,36 +4,20 @@ const path = require('path');
 const { token, autoDM, autoDeleteMessageAfterSend } = require('./settings.json');
 const saveData = require('./save.json');
 
+const logFilePath = './log.json'; 
+
 const client = new Discord.Client({
     checkUpdate: false
 });
 
-const lastMessages = new Map();
 const repliedUsers = new Set();
 
-client.on('ready', () => {
-    console.log(`${client.user.username} is now online!`);
-    
-    const channelId = '1298667554172305540';
-    const channel = client.channels.cache.get(channelId);
-    if (channel) {
-        channel.send('Hello World')
-            .then(() => {
-                console.log(`Message sent to channel with ID ${channelId}`);
-                startAutoMessages();
-            })
-            .catch(() => {
-                console.error(`????????????????????????????????????????????`);
-                console.log('YT: https://www.youtube.com/@Mr-Moundo');
-                console.log('Discord: https://discord.gg/Mq4Ca7TXc7');
-                process.exit(1);
-            });
-    } else {
-        console.error(`Channel with ID ${channelId} not found.`);
-        console.log('YT: https://www.youtube.com/@Mr-Moundo');
-        console.log('Discord: https://discord.gg/Mq4Ca7TXc7');
-        process.exit(1);  
-    }
+
+let logData = loadLogData();
+
+client.on('ready', async () => {
+    console.log(`[INFO] ${client.user.username} is now online!`);
+    startAutoMessages();
 });
 
 async function startAutoMessages() {
@@ -41,11 +25,11 @@ async function startAutoMessages() {
     const groupedMessages = groupMessagesByNumber(schedule);
 
     while (true) {
-        console.log("Starting message cycle...");
+        console.log("[INFO] Starting a new message cycle...");
         for (const numberGroup of groupedMessages) {
             await sendGroupMessagesSimultaneously(numberGroup);
         }
-        console.log("Message cycle completed. Restarting...");
+        console.log("[INFO] Message cycle completed. Restarting...");
     }
 }
 
@@ -63,50 +47,66 @@ function groupMessagesByNumber(schedule) {
 }
 
 async function sendGroupMessagesSimultaneously(group) {
-    const promises = [];
-
     for (const entry of group) {
-        const { serverId, channelId, message } = entry;
+        const { serverId, channelId, message, time } = entry;
 
-        const server = client.guilds.cache.get(serverId);
-        if (!server) {
-            console.error(`Server with ID ${serverId} not found.`);
-            continue;
+
+        const lastMessageTime = logData[channelId]?.lastSentAt || 0;
+        const currentTime = Date.now();
+        const requiredDelay = parseTime(time);
+
+        const elapsedTime = currentTime - lastMessageTime;
+
+
+        if (elapsedTime >= requiredDelay) {
+            console.log(`[INFO] Sending message to channel ${channelId}...`);
+            await sendMessageToChannel(serverId, channelId, message);
+        } else {
+
+            const timeRemaining = requiredDelay - elapsedTime;
+            console.log(`[INFO] Waiting ${timeRemaining / 1000}s before sending message to channel ${channelId}...`);
+            await sleep(timeRemaining);
+            await sendMessageToChannel(serverId, channelId, message);
         }
+    }
+}
 
-        const channel = client.channels.cache.get(channelId);
-        if (!channel) {
-            console.error(`Channel with ID ${channelId} not found.`);
-            continue;
-        }
-
-        const promise = new Promise(async (resolve) => {
-            try {
-                if (autoDeleteMessageAfterSend && lastMessages.has(channelId)) {
-                    const previousMessage = lastMessages.get(channelId);
-                    try {
-                        await previousMessage.delete();
-                    } catch (err) {
-                        console.error(`Failed to delete previous message in channel ${channelId}:`, err.message);
-                    }
-                }
-
-                const sentMessage = await channel.send(message);
-                lastMessages.set(channelId, sentMessage);
-                resolve();
-            } catch (err) {
-                console.error(`Failed to send message in channel ${channelId}:`, err.message);
-                resolve();
-            }
-        });
-
-        promises.push(promise);
+async function sendMessageToChannel(serverId, channelId, message) {
+    const server = client.guilds.cache.get(serverId);
+    if (!server) {
+        console.error(`[ERROR] Server with ID ${serverId} not found.`);
+        return;
     }
 
-    await Promise.all(promises);
+    const channel = client.channels.cache.get(channelId);
+    if (!channel) {
+        console.error(`[ERROR] Channel with ID ${channelId} not found.`);
+        return;
+    }
 
-    const groupTime = parseTime(group[0].time);
-    await sleep(groupTime);
+    try {
+
+        if (autoDeleteMessageAfterSend && logData[channelId]?.lastMessageId) {
+            const previousMessageId = logData[channelId].lastMessageId;
+            try {
+                const previousMessage = await channel.messages.fetch(previousMessageId);
+                if (previousMessage) {
+                    await previousMessage.delete();
+                }
+            } catch (err) {
+            }
+        }
+
+        const sentMessage = await channel.send(message);
+
+        logData[channelId] = {
+            lastSentAt: Date.now(),
+            lastMessageId: sentMessage.id
+        };
+        saveLogData(logData);
+    } catch (err) {
+        console.error(`[ERROR] Failed to send message in channel ${channelId}: ${err.message}`);
+    }
 }
 
 function parseTime(timeString) {
@@ -126,6 +126,30 @@ function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+
+function loadLogData() {
+    if (fs.existsSync(logFilePath)) {
+        try {
+            const rawData = fs.readFileSync(logFilePath, 'utf-8');
+            return JSON.parse(rawData);
+        } catch (err) {
+            console.error('[ERROR] Failed to load log data:', err.message);
+            return {};
+        }
+    } else {
+        return {};
+    }
+}
+
+
+function saveLogData(data) {
+    try {
+        fs.writeFileSync(logFilePath, JSON.stringify(data, null, 2));
+    } catch (err) {
+        console.error('[ERROR] Failed to save log data:', err.message);
+    }
+}
+
 if (autoDM) {
     client.on('messageCreate', async (message) => {
         if (
@@ -136,10 +160,9 @@ if (autoDM) {
 
         try {
             await message.reply(autoDM);
-            await message.reply("CodeBy: moundo1");
             repliedUsers.add(message.author.id);
         } catch (err) {
-            console.error(`Failed to send auto DM reply:`, err.message);
+            console.error(`[ERROR] Failed to send auto DM reply: ${err.message}`);
         }
     });
 }
@@ -151,5 +174,5 @@ client.login(token);
 // بلاش تشغيل دماغ
 // فضي دمغاك
 // تقدر تخلي الوقت زي ما تبي
-// s/m/h/
+// s/m/h/ 
 // مكسل اكمل شرح فا شوف الفديو يوتيوب او افتح تكت 
